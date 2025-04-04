@@ -10,8 +10,11 @@
     "test": "jest"
   },
   "dependencies": {
+    "@microsoft/signalr": "^8.0.7",
     "react": "19.0.0",
-    "react-native": "0.78.2"
+    "react-native": "0.78.2",
+    "react-native-url-polyfill": "^2.0.0",
+    "react-native-webrtc": "^124.0.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
