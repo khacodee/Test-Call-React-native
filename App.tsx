@@ -157,6 +157,7 @@ peer.current.ontrack = (event) => {
 };
 
       const stream = await mediaDevices.getUserMedia({ video: true, audio: true });
+      console.log("Audio tracks:", stream.getAudioTracks());
       if (localStreamRef.current) {
         localStreamRef.current.srcObject = stream;
       }
@@ -228,6 +229,7 @@ peer.current.ontrack = (event) => {
     const audioTracks = localStreamRef.current?.srcObject?.getAudioTracks();
     if (audioTracks && audioTracks.length > 0) {
       const isEnabled = audioTracks[0].enabled;
+      console.log("Mic is currently:", isEnabled ? "On" : "Off");
       audioTracks[0].enabled = !isEnabled;
       setIsMicOn(!isEnabled);
     }
@@ -313,95 +315,115 @@ peer.current.ontrack = (event) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#1e1e1e",
+    backgroundColor: "#121212", // Dark mode
   },
   loginContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 20,
   },
   title: {
-    fontSize: 24,
-    color: "#fff",
-    marginBottom: 20,
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#ffffff",
+    marginBottom: 30,
   },
   input: {
-    width: "80%",
+    width: "100%",
     borderWidth: 1,
-    borderColor: "#555",
-    borderRadius: 8,
-    padding: 10,
+    borderColor: "#888",
+    borderRadius: 10,
+    padding: 12,
     color: "#fff",
+    backgroundColor: "#1e1e1e",
     marginBottom: 20,
   },
   loginButton: {
-    backgroundColor: "#4CAF50",
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: "#3B82F6", // Blue
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
   },
   loginButtonText: {
     color: "#fff",
     fontSize: 16,
+    fontWeight: "bold",
   },
   callContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#000",
   },
   remoteVideo: {
     width: "100%",
-    height: "70%",
-    backgroundColor: "#000",
+    height: "100%",
+    position: "absolute",
+    top: 0,
+    left: 0,
   },
   localVideo: {
-    width: 100,
-    height: 150,
+    width: 120,
+    height: 180,
     position: "absolute",
     bottom: 20,
     right: 20,
     backgroundColor: "#000",
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#fff",
   },
   buttonRow: {
     flexDirection: "row",
     justifyContent: "space-around",
-    width: "100%",
-    marginVertical: 10,
+    width: "90%",
+    marginTop: 10,
   },
   actionButton: {
-    backgroundColor: "#555",
-    padding: 10,
-    borderRadius: 8,
+    backgroundColor: "#2D2D2D",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
   },
   actionButtonText: {
     color: "#fff",
     fontSize: 14,
   },
   startButton: {
-    backgroundColor: "#4CAF50",
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: "#22C55E", // Green
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    marginHorizontal: 5,
   },
   startButtonText: {
     color: "#fff",
     fontSize: 16,
+    fontWeight: "bold",
   },
   endButton: {
-    backgroundColor: "#F44336",
-    padding: 15,
-    borderRadius: 8,
+    backgroundColor: "#EF4444", // Red
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    marginHorizontal: 5,
   },
   endButtonText: {
     color: "#fff",
     fontSize: 16,
+    fontWeight: "bold",
   },
   incomingCallContainer: {
     position: "absolute",
-    bottom: 100,
+    top: 50,
     alignSelf: "center",
-    backgroundColor: "#333",
+    backgroundColor: "#1F2937",
     padding: 20,
     borderRadius: 10,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#3B82F6",
   },
   incomingCallText: {
     color: "#fff",
@@ -409,24 +431,29 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   acceptButton: {
-    backgroundColor: "#4CAF50",
-    padding: 10,
+    backgroundColor: "#22C55E",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     borderRadius: 8,
     marginBottom: 10,
   },
   acceptButtonText: {
     color: "#fff",
     fontSize: 14,
+    fontWeight: "bold",
   },
   rejectButton: {
-    backgroundColor: "#F44336",
-    padding: 10,
+    backgroundColor: "#EF4444",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     borderRadius: 8,
   },
   rejectButtonText: {
     color: "#fff",
     fontSize: 14,
+    fontWeight: "bold",
   },
 });
+
 
 export default App;
