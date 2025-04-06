@@ -122,14 +122,19 @@ const App = () => {
           { urls: "stun:stun.l.google.com:19302" },
           //{ urls: "stun:tellory.id.vn:3478" },
           {
-            urls: "turn:tellory.id.vn:3478",
-            username: "sep2025",
-            credential: "sep2025",
-          },
+  urls: [
+    "turn:tellory.id.vn:3478?transport=udp",
+    "turn:tellory.id.vn:3478?transport=tcp"
+  ],
+  username: "sep2025",
+  credential: "sep2025",
+}
+,
         ],
       });
 
      peer.current.onicecandidate = async (event) => {
+      console.log("ICE Candidate Event Triggered. targetUserId:", targetUserId);
   if (event.candidate && targetUserId) {
     console.log("Generated ICE candidate:", event.candidate);
 
