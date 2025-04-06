@@ -8,10 +8,10 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  Platform,
   PermissionsAndroid,
+  Platform,
 } from "react-native";
-import { RTCPeerConnection, RTCView, mediaDevices, RTCSessionDescription } from "react-native-webrtc";
+import { RTCPeerConnection, RTCView, mediaDevices, RTCSessionDescription, RTCIceCandidate } from "react-native-webrtc";
 import * as signalR from "@microsoft/signalr";
 
 const SERVER_URL = "https://tellory.id.vn/callhub";
@@ -30,8 +30,8 @@ const App = () => {
   const [isVideoOn, setIsVideoOn] = useState(true);
 
   const requestPermissions = async () => {
-    if (Platform.OS === "android") {
-      try {
+    try {
+      if (Platform.OS === "android") {
         const granted = await PermissionsAndroid.requestMultiple([
           PermissionsAndroid.PERMISSIONS.CAMERA,
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
@@ -43,65 +43,92 @@ const App = () => {
         ) {
           Alert.alert("Permissions Denied", "Camera and Audio permissions are required.");
         }
-      } catch (err) {
-        console.warn(err);
       }
+    } catch (err) {
+      console.warn("Error requesting permissions:", err);
     }
   };
-useEffect(() => {
-    if (isLoggedIn) {
-      const newConnection = new signalR.HubConnectionBuilder()
-        .withUrl(`${SERVER_URL}?userId=${encodeURIComponent(userId)}`)
-        .withAutomaticReconnect()
-        .build();
 
-      newConnection.start()
-        .then(() => {
-          console.log("SignalR connected");
-        })
-        .catch((err) => console.error("SignalR Connection Error: ", err));
+  useEffect(() => {
+    try {
+      requestPermissions(); // Call the function here to request permissions on app start
+      if (isLoggedIn) {
+        const newConnection = new signalR.HubConnectionBuilder()
+          .withUrl(`${SERVER_URL}?userId=${encodeURIComponent(userId)}`)
+          .withAutomaticReconnect()
+          .build();
 
-      // Handle incoming offer
-      newConnection.on("ReceiveOffer", async (offer, callerUserId) => {
-        console.log("Incoming call from:", callerUserId);
-        setIncomingCall({ callerUserId, offer });
-        setTargetUserId(callerUserId);
-        if (!peer.current) {
-          await setupWebRTC();
-        }
-      });
+        newConnection.start()
+          .then(() => console.log("SignalR connected"))
+          .catch((err) => console.error("SignalR Connection Error: ", err));
 
-      // Handle incoming answer
-      newConnection.on("ReceiveAnswer", async (answer) => {
-        console.log("Received answer");
-        await peer.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(answer)));
-      });
+        newConnection.on("ReceiveOffer", async (offer, callerUserId) => {
+          try {
+            console.log("Incoming call from:", callerUserId);
+            setIncomingCall({ callerUserId, offer });
+            setTargetUserId(callerUserId);
+            if (!peer.current) {
+              await setupWebRTC();
+            }
+          } catch (err) {
+            console.error("Error handling ReceiveOffer:", err);
+          }
+        });
 
-      // Handle incoming ICE candidates
-      newConnection.on("ReceiveIceCandidate", (candidate) => {
-        console.log("Received ICE candidate");
-        const iceCandidate = new RTCIceCandidate(JSON.parse(candidate));
-        if (peer.current && peer.current.remoteDescription) {
-          peer.current.addIceCandidate(iceCandidate);
-        } else {
-          iceCandidateQueue.current.push(iceCandidate);
-        }
-      });
+        newConnection.on("ReceiveAnswer", async (answer) => {
+          try {
+            console.log("Received answer");
+            await peer.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(answer)));
+          } catch (err) {
+            console.error("Error handling ReceiveAnswer:", err);
+          }
+        });
 
-      // Handle call ended
-      newConnection.on("CallEnded", () => {
-        console.log("Call ended");
-        endCall();
-      });
+        newConnection.on("ReceiveIceCandidate", async (candidate) => {
+          try {
+            console.log("Received ICE candidate:", candidate);
+            const iceCandidate = new RTCIceCandidate(JSON.parse(candidate));
 
-      setConnection(newConnection);
+            if (peer.current) {
+              if (peer.current.remoteDescription) {
+                await peer.current.addIceCandidate(iceCandidate);
+                console.log("ICE candidate added successfully:", iceCandidate);
+              } else {
+                console.warn("Remote description not set. Queuing ICE candidate.");
+                iceCandidateQueue.current.push(iceCandidate);
+              }
+            } else {
+              console.error("Peer connection is not initialized.");
+            }
+          } catch (error) {
+            console.error("Error processing ICE candidate:", error);
+          }
+        });
 
-      return () => {
-        newConnection.stop();
-      };
+        newConnection.on("CallEnded", () => {
+          try {
+            console.log("Call ended");
+            endCall();
+          } catch (err) {
+            console.error("Error handling CallEnded:", err);
+          }
+        });
+
+        setConnection(newConnection);
+
+        return () => {
+          try {
+            newConnection.stop();
+          } catch (err) {
+            console.error("Error stopping connection:", err);
+          }
+        };
+      }
+    } catch (err) {
+      console.error("Error in useEffect:", err);
     }
   }, [isLoggedIn, userId]);
-  
+
   const setupWebRTC = async () => {
     try {
       console.log("Setting up WebRTC...");
@@ -114,133 +141,138 @@ useEffect(() => {
             credential: "sep2025",
           },
         ],
-        iceTransportPolicy: "all",
-  bundlePolicy: "max-bundle",
-  rtcpMuxPolicy: "require",
-  iceCandidatePoolSize: 0,
       });
 
-      const checkUserExists = async (userId) => {
-  try {
-    const userExists = await connection.invoke("CheckUserExists", userId);
-    console.log(`User ${userId} exists: ${userExists}`);
-    return userExists;
-  } catch (error) {
-    console.error("Error checking user existence:", error);
-    return false;
-  }
-};
+      peer.current.onicecandidate = (event) => {
+        try {
+          if (event.candidate && targetUserId) {
+            console.log("Generated ICE candidate:", event.candidate);
+            connection.invoke("SendIceCandidate", targetUserId, JSON.stringify(event.candidate))
+              .catch((err) => console.error("Error sending ICE candidate:", err));
+          }
+        } catch (err) {
+          console.error("Error in onicecandidate:", err);
+        }
+      };
 
-      peer.current.onicecandidate = async (event) => {
-  if (event.candidate && targetUserId) {
-    console.log("Generated ICE candidate:", event.candidate);
-
-    const userExists = await checkUserExists(targetUserId);
-    if (!userExists) {
-      console.warn(`Không thể gửi ICE candidate. User ${targetUserId} không kết nối.`);
-      return;
-    }
-
-    console.log("Gửi ICE candidate đến:", targetUserId);
-    connection.invoke("SendIceCandidate", targetUserId, JSON.stringify(event.candidate))
-      .catch(err => console.error("Lỗi khi gửi ICE candidate:", err));
-  } else {
-    console.warn("ICE candidate không được gửi: targetUserId chưa được thiết lập.");
-  }
-};
-
-peer.current.ontrack = (event) => {
-  console.log("Remote track received:", event.streams[0]);
-  if (remoteStreamRef.current) {
-    remoteStreamRef.current.srcObject = event.streams[0];
-  }
-};
+      peer.current.ontrack = (event) => {
+        try {
+          console.log("Remote track received:", event.streams[0]);
+          if (remoteStreamRef.current) {
+            remoteStreamRef.current.srcObject = event.streams[0];
+          }
+        } catch (err) {
+          console.error("Error in ontrack:", err);
+        }
+      };
 
       const stream = await mediaDevices.getUserMedia({ video: true, audio: true });
-      console.log("Audio tracks:", stream.getAudioTracks());
+      console.log("Local stream:", stream);
       if (localStreamRef.current) {
         localStreamRef.current.srcObject = stream;
       }
       stream.getTracks().forEach((track) => peer.current.addTrack(track, stream));
-      console.log("Local stream set up successfully");
     } catch (error) {
-      console.error("Error in setupWebRTC:", error);
-      Alert.alert("Error", "Unable to set up WebRTC: " + error.message);
+      console.error("Error setting up WebRTC:", error);
+      Alert.alert("Error", "Failed to set up WebRTC: " + error.message);
     }
   };
 
   const startCall = async () => {
-    if (!targetUserId) {
-      Alert.alert("Error", "Please enter a target user ID.");
-      return;
-    }
     try {
-      console.log("Starting call...");
+      if (!targetUserId) {
+        alert("Vui lòng nhập ID người dùng mục tiêu.");
+        return;
+      }
+
+      const userExists = await checkUserExists(targetUserId);
+      if (!userExists) {
+        alert(`Người dùng với ID ${targetUserId} không tồn tại hoặc không trực tuyến.`);
+        return;
+      }
+
       await setupWebRTC();
+
       const offer = await peer.current.createOffer();
       await peer.current.setLocalDescription(offer);
-      console.log("Local description set with offer");
-      connection.invoke("SendOffer", targetUserId, JSON.stringify(offer));
+
+      connection.invoke("SendOffer", targetUserId, JSON.stringify(offer))
+        .catch(err => console.error("Lỗi khi gửi offer:", err));
     } catch (error) {
-      console.error("Error in startCall:", error);
-      Alert.alert("Error", "Failed to start the call: " + error.message);
+      console.error("Lỗi khi bắt đầu cuộc gọi:", error);
+      alert("Không thể bắt đầu cuộc gọi. Vui lòng thử lại.");
+    }
+  };
+
+  const checkUserExists = async (userId) => {
+    try {
+      const userExists = await connection.invoke("CheckUserExists", userId);
+      console.log(`User ${userId} exists: ${userExists}`);
+      return userExists;
+    } catch (error) {
+      console.error("Error checking user existence:", error);
+      return false;
     }
   };
 
   const endCall = () => {
-    if (peer.current) {
-      peer.current.close();
-      peer.current = null;
-    }
-    if (localStreamRef.current) {
-      localStreamRef.current.srcObject = null;
-    }
-    if (remoteStreamRef.current) {
-      remoteStreamRef.current.srcObject = null;
-    }
-    if (connection && targetUserId) {
-      connection.invoke("EndCall", targetUserId);
+    try {
+      if (peer.current) {
+        peer.current.close();
+        peer.current = null;
+      }
+      if (localStreamRef.current) {
+        localStreamRef.current.srcObject = null;
+      }
+      if (remoteStreamRef.current) {
+        remoteStreamRef.current.srcObject = null;
+      }
+      if (connection && targetUserId) {
+        connection.invoke("EndCall", targetUserId);
+      }
+    } catch (err) {
+      console.error("Error ending call:", err);
     }
   };
 
   const acceptCall = async () => {
-    console.log("Accept Call button pressed");
     try {
+      console.log("Accepting call...");
       await setupWebRTC();
-      console.log("WebRTC setup completed");
       await peer.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(incomingCall.offer)));
-      console.log("Remote description set");
       const answer = await peer.current.createAnswer();
       await peer.current.setLocalDescription(answer);
-      console.log("Local description set");
       connection.invoke("SendAnswer", incomingCall.callerUserId, JSON.stringify(answer));
       setIncomingCall(null);
     } catch (error) {
-      console.error("Error in acceptCall:", error);
+      console.error("Error accepting call:", error);
       Alert.alert("Error", "Failed to accept the call: " + error.message);
     }
   };
 
-  const rejectCall = () => {
-    setIncomingCall(null);
-  };
-
   const toggleMic = () => {
-    const audioTracks = localStreamRef.current?.srcObject?.getAudioTracks();
-    if (audioTracks && audioTracks.length > 0) {
-      const isEnabled = audioTracks[0].enabled;
-      console.log("Mic is currently:", isEnabled ? "On" : "Off");
-      audioTracks[0].enabled = !isEnabled;
-      setIsMicOn(!isEnabled);
+    try {
+      const audioTracks = localStreamRef.current?.srcObject?.getAudioTracks();
+      if (audioTracks && audioTracks.length > 0) {
+        const isEnabled = audioTracks[0].enabled;
+        audioTracks[0].enabled = !isEnabled;
+        setIsMicOn(!isEnabled);
+      }
+    } catch (err) {
+      console.error("Error toggling mic:", err);
     }
   };
 
   const toggleVideo = () => {
-    const videoTracks = localStreamRef.current?.srcObject?.getVideoTracks();
-    if (videoTracks && videoTracks.length > 0) {
-      const isEnabled = videoTracks[0].enabled;
-      videoTracks[0].enabled = !isEnabled;
-      setIsVideoOn(!isEnabled);
+    try {
+      const videoTracks = localStreamRef.current?.srcObject?.getVideoTracks();
+      if (videoTracks && videoTracks.length > 0) {
+        const isEnabled = videoTracks[0].enabled;
+        videoTracks[0].enabled = !isEnabled;
+        setIsVideoOn(!isEnabled);
+      }
+    } catch (err) {
+      console.error("Error toggling video:", err);
     }
   };
 
@@ -301,7 +333,7 @@ peer.current.ontrack = (event) => {
               <TouchableOpacity style={styles.acceptButton} onPress={acceptCall}>
                 <Text style={styles.acceptButtonText}>Accept</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.rejectButton} onPress={rejectCall}>
+              <TouchableOpacity style={styles.rejectButton} onPress={() => setIncomingCall(null)}>
                 <Text style={styles.rejectButtonText}>Reject</Text>
               </TouchableOpacity>
             </View>
@@ -315,7 +347,7 @@ peer.current.ontrack = (event) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212", // Dark mode
+    backgroundColor: "#121212",
   },
   loginContainer: {
     flex: 1,
@@ -340,7 +372,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   loginButton: {
-    backgroundColor: "#3B82F6", // Blue
+    backgroundColor: "#3B82F6",
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 10,
@@ -391,7 +423,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   startButton: {
-    backgroundColor: "#22C55E", // Green
+    backgroundColor: "#22C55E",
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 10,
@@ -403,7 +435,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   endButton: {
-    backgroundColor: "#EF4444", // Red
+    backgroundColor: "#EF4444",
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 10,
@@ -454,6 +486,5 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 });
-
 
 export default App;
