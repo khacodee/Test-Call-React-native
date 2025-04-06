@@ -119,7 +119,8 @@ const App = () => {
       console.log("Setting up WebRTC...");
       peer.current = new RTCPeerConnection({
         iceServers: [
-          //{ urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:stun.l.google.com:19302" },
+          //{ urls: "stun:tellory.id.vn:3478" },
           {
             urls: "turn:tellory.id.vn:3478",
             username: "sep2025",
@@ -128,16 +129,30 @@ const App = () => {
         ],
       });
 
-      peer.current.onicecandidate = (event) => {
-        console.log("ICE candidate:", event.candidate);
-        if (event.candidate && targetUserId) {
-          connection.invoke("SendIceCandidate", targetUserId, JSON.stringify(event.candidate))
-            .catch((err) => console.error("Error sending ICE candidate:", err));
-        }
-      };
+     peer.current.onicecandidate = async (event) => {
+  if (event.candidate && targetUserId) {
+    console.log("Generated ICE candidate:", event.candidate);
+
+    try {
+      const userExists = await checkUserExists(targetUserId);
+      if (!userExists) {
+        console.warn(`Không thể gửi ICE candidate. User ${targetUserId} không kết nối.`);
+        return;
+      }
+
+      console.log("Gửi ICE candidate đến:", targetUserId);
+      connection.invoke("SendIceCandidate", targetUserId, JSON.stringify(event.candidate))
+        .catch(err => console.error("Lỗi khi gửi ICE candidate:", err));
+    } catch (error) {
+      console.error("Lỗi khi kiểm tra user tồn tại:", error);
+    }
+  } else {
+    console.warn("ICE candidate không được gửi: targetUserId chưa được thiết lập.");
+  }
+};
 
       peer.current.oniceconnectionstatechange = (event) => {
-  console.log('ICE Connection State:', peer.current.iceConnectionState);
+  console.log('ICE Connection State:', peer.current?.iceConnectionState);
 };
 peer.current.ondatachannel = (event) => {
   console.log('Data channel established');
