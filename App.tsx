@@ -30,8 +30,8 @@ const App = () => {
   const [isVideoOn, setIsVideoOn] = useState(true);
 
   const requestPermissions = async () => {
-    try {
-      if (Platform.OS === "android") {
+    if (Platform.OS === "android") {
+      try {
         const granted = await PermissionsAndroid.requestMultiple([
           PermissionsAndroid.PERMISSIONS.CAMERA,
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
@@ -43,98 +43,83 @@ const App = () => {
         ) {
           Alert.alert("Permissions Denied", "Camera and Audio permissions are required.");
         }
+      } catch (err) {
+        console.warn("Error requesting permissions:", err);
       }
-    } catch (err) {
-      console.warn("Error requesting permissions:", err);
     }
   };
 
   useEffect(() => {
-    try {
-      requestPermissions(); // Call the function here to request permissions on app start
-      if (isLoggedIn) {
-        const newConnection = new signalR.HubConnectionBuilder()
-          .withUrl(`${SERVER_URL}?userId=${encodeURIComponent(userId)}`)
-          .withAutomaticReconnect()
-          .build();
+    requestPermissions();
 
-        newConnection.start()
-          .then(() => console.log("SignalR connected"))
-          .catch((err) => console.error("SignalR Connection Error: ", err));
+    if (isLoggedIn) {
+      const newConnection = new signalR.HubConnectionBuilder()
+        .withUrl(`${SERVER_URL}?userId=${encodeURIComponent(userId)}`)
+        .withAutomaticReconnect()
+        .build();
 
-        newConnection.on("ReceiveOffer", async (offer, callerUserId) => {
-          try {
-            console.log("Incoming call from:", callerUserId);
-            setIncomingCall({ callerUserId, offer });
-            setTargetUserId(callerUserId);
-            if (!peer.current) {
-              await setupWebRTC();
-            }
-          } catch (err) {
-            console.error("Error handling ReceiveOffer:", err);
-          }
-        });
+      newConnection.start()
+        .then(() => console.log("SignalR connected"))
+        .catch((err) => console.error("SignalR Connection Error: ", err));
 
-        newConnection.on("ReceiveAnswer", async (answer) => {
-          try {
-            console.log("Received answer");
-            await peer.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(answer)));
-          } catch (err) {
-            console.error("Error handling ReceiveAnswer:", err);
-          }
-        });
+      newConnection.on("ReceiveOffer", handleReceiveOffer);
+      newConnection.on("ReceiveAnswer", handleReceiveAnswer);
+      newConnection.on("ReceiveIceCandidate", handleReceiveIceCandidate);
+      newConnection.on("CallEnded", endCall);
 
-        newConnection.on("ReceiveIceCandidate", async (candidate) => {
-          try {
-            console.log("Received ICE candidate:", candidate);
-            const iceCandidate = new RTCIceCandidate(JSON.parse(candidate));
+      setConnection(newConnection);
 
-            if (peer.current) {
-              if (peer.current.remoteDescription) {
-                await peer.current.addIceCandidate(iceCandidate);
-                console.log("ICE candidate added successfully:", iceCandidate);
-              } else {
-                console.warn("Remote description not set. Queuing ICE candidate.");
-                iceCandidateQueue.current.push(iceCandidate);
-              }
-            } else {
-              console.error("Peer connection is not initialized.");
-            }
-          } catch (error) {
-            console.error("Error processing ICE candidate:", error);
-          }
-        });
-
-        newConnection.on("CallEnded", () => {
-          try {
-            console.log("Call ended");
-            endCall();
-          } catch (err) {
-            console.error("Error handling CallEnded:", err);
-          }
-        });
-
-        setConnection(newConnection);
-
-        return () => {
-          try {
-            newConnection.stop();
-          } catch (err) {
-            console.error("Error stopping connection:", err);
-          }
-        };
-      }
-    } catch (err) {
-      console.error("Error in useEffect:", err);
+      return () => {
+        newConnection.stop().catch((err) => console.error("Error stopping connection:", err));
+      };
     }
   }, [isLoggedIn, userId]);
+
+  const handleReceiveOffer = async (offer, callerUserId) => {
+    console.log("Incoming call from:", callerUserId);
+    setIncomingCall({ callerUserId, offer });
+    setTargetUserId(callerUserId);
+    if (!peer.current) {
+      await setupWebRTC();
+    }
+  };
+
+  const handleReceiveAnswer = async (answer) => {
+    try {
+      console.log("Received answer");
+      await peer.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(answer)));
+    } catch (err) {
+      console.error("Error handling ReceiveAnswer:", err);
+    }
+  };
+
+  const handleReceiveIceCandidate = async (candidate) => {
+    try {
+      console.log("Received ICE candidate:", candidate);
+      const iceCandidate = new RTCIceCandidate(JSON.parse(candidate));
+
+      if (peer.current) {
+        if (peer.current.remoteDescription) {
+          await peer.current.addIceCandidate(iceCandidate);
+          console.log("ICE candidate added successfully:", iceCandidate);
+        } else {
+          console.warn("Remote description not set. Queuing ICE candidate.");
+          iceCandidateQueue.current.push(iceCandidate);
+        }
+      } else {
+        console.error("Peer connection is not initialized.");
+      }
+    } catch (error) {
+      console.error("Error processing ICE candidate:", error);
+    }
+  };
 
   const setupWebRTC = async () => {
     try {
       console.log("Setting up WebRTC...");
       peer.current = new RTCPeerConnection({
         iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
+          //{ urls: "stun:stun.l.google.com:19302" },
           {
             urls: "turn:tellory.id.vn:3478",
             username: "sep2025",
@@ -144,30 +129,26 @@ const App = () => {
       });
 
       peer.current.onicecandidate = (event) => {
-        try {
-          if (event.candidate && targetUserId) {
-            console.log("Generated ICE candidate:", event.candidate);
-            connection.invoke("SendIceCandidate", targetUserId, JSON.stringify(event.candidate))
-              .catch((err) => console.error("Error sending ICE candidate:", err));
-          }
-        } catch (err) {
-          console.error("Error in onicecandidate:", err);
+        console.log("ICE candidate:", event.candidate);
+        if (event.candidate && targetUserId) {
+          connection.invoke("SendIceCandidate", targetUserId, JSON.stringify(event.candidate))
+            .catch((err) => console.error("Error sending ICE candidate:", err));
         }
       };
 
+      peer.current.oniceconnectionstatechange = (event) => {
+  console.log('ICE Connection State:', peer.current.iceConnectionState);
+};
+peer.current.ondatachannel = (event) => {
+  console.log('Data channel established');
+};
       peer.current.ontrack = (event) => {
-        try {
-          console.log("Remote track received:", event.streams[0]);
-          if (remoteStreamRef.current) {
-            remoteStreamRef.current.srcObject = event.streams[0];
-          }
-        } catch (err) {
-          console.error("Error in ontrack:", err);
+        if (remoteStreamRef.current) {
+          remoteStreamRef.current.srcObject = event.streams[0];
         }
       };
 
       const stream = await mediaDevices.getUserMedia({ video: true, audio: true });
-      console.log("Local stream:", stream);
       if (localStreamRef.current) {
         localStreamRef.current.srcObject = stream;
       }
@@ -179,36 +160,29 @@ const App = () => {
   };
 
   const startCall = async () => {
-    try {
-      if (!targetUserId) {
-        alert("Vui lòng nhập ID người dùng mục tiêu.");
-        return;
-      }
-
-      const userExists = await checkUserExists(targetUserId);
-      if (!userExists) {
-        alert(`Người dùng với ID ${targetUserId} không tồn tại hoặc không trực tuyến.`);
-        return;
-      }
-
-      await setupWebRTC();
-
-      const offer = await peer.current.createOffer();
-      await peer.current.setLocalDescription(offer);
-
-      connection.invoke("SendOffer", targetUserId, JSON.stringify(offer))
-        .catch(err => console.error("Lỗi khi gửi offer:", err));
-    } catch (error) {
-      console.error("Lỗi khi bắt đầu cuộc gọi:", error);
-      alert("Không thể bắt đầu cuộc gọi. Vui lòng thử lại.");
+    if (!targetUserId) {
+      alert("Vui lòng nhập ID người dùng mục tiêu.");
+      return;
     }
+
+    const userExists = await checkUserExists(targetUserId);
+    if (!userExists) {
+      alert(`Người dùng với ID ${targetUserId} không tồn tại hoặc không trực tuyến.`);
+      return;
+    }
+
+    await setupWebRTC();
+
+    const offer = await peer.current.createOffer();
+    await peer.current.setLocalDescription(offer);
+
+    connection.invoke("SendOffer", targetUserId, JSON.stringify(offer))
+      .catch((err) => console.error("Lỗi khi gửi offer:", err));
   };
 
   const checkUserExists = async (userId) => {
     try {
-      const userExists = await connection.invoke("CheckUserExists", userId);
-      console.log(`User ${userId} exists: ${userExists}`);
-      return userExists;
+      return await connection.invoke("CheckUserExists", userId);
     } catch (error) {
       console.error("Error checking user existence:", error);
       return false;
@@ -216,28 +190,24 @@ const App = () => {
   };
 
   const endCall = () => {
-    try {
-      if (peer.current) {
-        peer.current.close();
-        peer.current = null;
-      }
-      if (localStreamRef.current) {
-        localStreamRef.current.srcObject = null;
-      }
-      if (remoteStreamRef.current) {
-        remoteStreamRef.current.srcObject = null;
-      }
-      if (connection && targetUserId) {
-        connection.invoke("EndCall", targetUserId);
-      }
-    } catch (err) {
-      console.error("Error ending call:", err);
+    if (peer.current) {
+      peer.current.close();
+      peer.current = null;
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.srcObject = null;
+    }
+    if (remoteStreamRef.current) {
+      remoteStreamRef.current.srcObject = null;
+    }
+    if (connection && targetUserId) {
+      connection.invoke("EndCall", targetUserId);
     }
   };
 
   const acceptCall = async () => {
     try {
-      console.log("Accepting call...");
+       console.log("Chấp nhận cuộc gọi từ:", incomingCall);
       await setupWebRTC();
       await peer.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(incomingCall.offer)));
       const answer = await peer.current.createAnswer();
@@ -251,28 +221,20 @@ const App = () => {
   };
 
   const toggleMic = () => {
-    try {
-      const audioTracks = localStreamRef.current?.srcObject?.getAudioTracks();
-      if (audioTracks && audioTracks.length > 0) {
-        const isEnabled = audioTracks[0].enabled;
-        audioTracks[0].enabled = !isEnabled;
-        setIsMicOn(!isEnabled);
-      }
-    } catch (err) {
-      console.error("Error toggling mic:", err);
+    const audioTracks = localStreamRef.current?.srcObject?.getAudioTracks();
+    if (audioTracks && audioTracks.length > 0) {
+      const isEnabled = audioTracks[0].enabled;
+      audioTracks[0].enabled = !isEnabled;
+      setIsMicOn(!isEnabled);
     }
   };
 
   const toggleVideo = () => {
-    try {
-      const videoTracks = localStreamRef.current?.srcObject?.getVideoTracks();
-      if (videoTracks && videoTracks.length > 0) {
-        const isEnabled = videoTracks[0].enabled;
-        videoTracks[0].enabled = !isEnabled;
-        setIsVideoOn(!isEnabled);
-      }
-    } catch (err) {
-      console.error("Error toggling video:", err);
+    const videoTracks = localStreamRef.current?.srcObject?.getVideoTracks();
+    if (videoTracks && videoTracks.length > 0) {
+      const isEnabled = videoTracks[0].enabled;
+      videoTracks[0].enabled = !isEnabled;
+      setIsVideoOn(!isEnabled);
     }
   };
 
