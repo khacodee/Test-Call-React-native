@@ -230,6 +230,11 @@ peer.current.ondatachannel = (event) => {
        console.log("Chấp nhận cuộc gọi từ:", incomingCall);
       await setupWebRTC();
       await peer.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(incomingCall.offer)));
+      
+      while (iceCandidateQueue.current.length > 0) {
+        const candidate = iceCandidateQueue.current.shift();
+        await peer.current.addIceCandidate(candidate);
+      }
       const answer = await peer.current.createAnswer();
       await peer.current.setLocalDescription(answer);
       connection.invoke("SendAnswer", incomingCall.callerUserId, JSON.stringify(answer));
